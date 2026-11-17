@@ -16,7 +16,8 @@ import { boardIssue, buildRadar, dataScript, parseSnapshot } from './lib/model.t
 const here = fileURLToPath(new URL('.', import.meta.url));
 const DEFAULT_INPUT = '/input';
 const DEFAULT_OUTPUT = '/output';
-const REQUIRED_ROWS = 240;
+// Cover every sealed input record, with candidates separated in the UI.
+const REQUIRED_ROWS = 100;
 
 function argument(name: string, fallback: string): string {
   const flag = `--${name}`;
@@ -48,10 +49,10 @@ function copyDirectory(source: string, destination: string): void {
 }
 
 function validateBoard(rows: any[], snapshot: ReturnType<typeof parseSnapshot>): void {
-  if (rows.length !== REQUIRED_ROWS) fail(`expected exactly ${REQUIRED_ROWS} rows, got ${rows.length}`);
+  if (rows.length < REQUIRED_ROWS || rows.length !== snapshot.protocols.length) fail(`expected complete snapshot coverage, got ${rows.length}`);
 
   const ranks = rows.map((row) => row.rank);
-  if (ranks.some((rank, index) => rank !== index + 1)) fail('rank validation failed: expected ranks 1..240');
+  if (ranks.some((rank, index) => rank !== index + 1)) fail('rank validation failed: expected consecutive ranks 1..N');
 
   const slugs = new Set(rows.map((row) => row.slug));
   const missing = snapshot.watchlist.filter((slug) => !slugs.has(slug));

@@ -1,155 +1,59 @@
-// Offline Token Radar dashboard: all values come from the generated data.js file.
-(function () {
-  'use strict';
-
-  var data = window.RADAR;
-  var mount = document.getElementById('app');
-  if (!data || !mount) return;
-  var state = { query: '', category: 'all', sort: 'value', direction: -1, selected: null };
-  var money = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 });
-
-  function node(tag, attrs) {
-    var element = document.createElement(tag);
-    var children = Array.prototype.slice.call(arguments, 2);
-    Object.keys(attrs || {}).forEach(function (key) {
-      var value = attrs[key];
-      if (value === null || value === undefined) return;
-      if (key === 'text') element.textContent = value;
-      else if (key === 'class') element.className = value;
-      else if (key.indexOf('on') === 0) element.addEventListener(key.slice(2), value);
-      else element.setAttribute(key, value);
-    });
-    children.forEach(function (child) {
-      if (child === null || child === undefined) return;
-      if (Array.isArray(child)) child.forEach(function (item) { if (item) element.appendChild(item); });
-      else if (typeof child === 'string') element.appendChild(document.createTextNode(child));
-      else element.appendChild(child);
-    });
-    return element;
-  }
-  function usd(value) {
-    if (value === null || value === undefined || !isFinite(value)) return 'n/a';
-    if (Math.abs(value) >= 1e9) return '$' + (value / 1e9).toFixed(2) + 'B';
-    if (Math.abs(value) >= 1e6) return '$' + (value / 1e6).toFixed(1) + 'M';
-    if (Math.abs(value) >= 1e3) return '$' + Math.round(value / 1e3) + 'K';
-    return money.format(value);
-  }
-  function percent(value) { return value === null || value === undefined ? 'n/a' : (value > 0 ? '+' : '') + value.toFixed(2) + '%'; }
-  function age(value) { return value === null || value === undefined ? 'unknown' : value >= 365 ? (value / 365).toFixed(1) + 'y' : Math.max(0, Math.round(value)) + 'd'; }
-  function category(row) { return row.category || 'Other'; }
-  function chains(row) { return row.chains && row.chains.length ? row.chains.slice(0, 2).join(', ') : 'unnamed chain'; }
-
-  function filteredRows() {
-    var query = state.query.trim().toLowerCase();
-    return data.rows.filter(function (row) {
-      if (state.category !== 'all' && category(row) !== state.category) return false;
-      if (!query) return true;
-      return [row.name, row.slug, category(row), chains(row)].join(' ').toLowerCase().indexOf(query) >= 0;
-    });
-  }
-  function sortedRows() {
-    var rows = filteredRows().slice();
-    rows.sort(function (left, right) {
-      var a, b;
-      if (state.sort === 'name') { a = left.name.toLowerCase(); b = right.name.toLowerCase(); }
-      else if (state.sort === 'tvl') { a = left.tvl_usd; b = right.tvl_usd; }
-      else if (state.sort === 'growth') { a = left.change_7d === null ? -Infinity : left.change_7d; b = right.change_7d === null ? -Infinity : right.change_7d; }
-      else if (state.sort === 'age') { a = left.age_days === null ? Infinity : left.age_days; b = right.age_days === null ? Infinity : right.age_days; }
-      else { a = left.implied_value_usd; b = right.implied_value_usd; }
-      if (a < b) return -state.direction;
-      if (a > b) return state.direction;
-      return left.slug.localeCompare(right.slug);
-    });
-    return rows;
-  }
-  function sortButton(key, label) {
-    return node('button', { type: 'button', text: label + (state.sort === key ? (state.direction < 0 ? ' ↓' : ' ↑') : ''), onclick: function () { if (state.sort === key) state.direction *= -1; else { state.sort = key; state.direction = -1; } render(); } });
-  }
-  function header() {
-    return node('header', { class: 'top' },
-      node('div', { class: 'brand' }, node('span', { class: 'mark', 'aria-hidden': 'true' }), node('span', { class: 'brand-name', text: 'Token Radar' })),
-      node('div', { class: 'top-meta' }, node('span', { text: 'Snapshot ' + data.as_of }), node('span', { text: 'Offline / deterministic' }), node('span', { text: data.model.version }))
-    );
-  }
-  function intro() {
-    return node('section', { class: 'lede' },
-      node('div', null, node('h1', { text: 'Pre-token signals, ranked without a promise' }), node('p', { text: 'A reproducible board from ' + data.source + '. The watchlist is the floor; the early radar adds lower-TVL protocols that still pass the same no-token screen.' })),
-      node('div', { class: 'facts' },
-        node('div', { class: 'fact' }, node('span', { text: 'Watchlist covered' }), node('b', { text: data.watchlist_size + ' / ' + data.watchlist_size })),
-        node('div', { class: 'fact' }, node('span', { text: 'Rows scored' }), node('b', { text: String(data.board_size) })),
-        node('div', { class: 'fact' }, node('span', { text: 'Below floor' }), node('b', { text: String(data.early_size) })),
-        node('div', { class: 'fact' }, node('span', { text: 'Set aside as live' }), node('b', { text: String(data.live_size) }))
-      )
-    );
-  }
-  function controls() {
-    var search = node('input', { type: 'search', id: 'search', value: state.query, placeholder: 'Search protocol, category or chain', 'aria-label': 'Search protocols', oninput: function (event) { state.query = event.target.value; render(); } });
-    var categories = Array.from(new Set(data.rows.map(category))).sort();
-    var select = node('select', { id: 'category', 'aria-label': 'Filter by category', onchange: function (event) { state.category = event.target.value; render(); } }, node('option', { value: 'all', text: 'All categories' }), categories.map(function (value) { return node('option', { value: value, text: value, selected: value === state.category ? 'selected' : null }); }));
-    return node('div', { class: 'controls' },
-      node('div', { class: 'field' }, node('label', { for: 'search', text: 'Search' }), search),
-      node('div', { class: 'field' }, node('label', { for: 'category', text: 'Category' }), select),
-      node('span', { class: 'count', text: sortedRows().length + ' of ' + data.board_size + ' rows shown' })
-    );
-  }
-  function table() {
-    var rows = sortedRows();
-    if (!rows.length) return node('section', { class: 'panel empty' }, node('h2', { text: 'No rows match' }), node('p', { class: 'muted', text: 'Clear the search or choose all categories.' }), node('button', { class: 'button primary', type: 'button', text: 'Clear filters', onclick: function () { state.query = ''; state.category = 'all'; render(); } }));
-    var max = rows[0].implied_value_usd || 1;
-    var body = node('tbody');
-    rows.forEach(function (row) {
-      var growthClass = row.change_7d === null ? '' : row.change_7d >= 0 ? 'pos' : 'neg';
-      body.appendChild(node('tr', { tabindex: '0', 'data-selected': state.selected === row.slug ? 'true' : 'false', onclick: function () { openDetail(row.slug); }, onkeydown: function (event) { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); openDetail(row.slug); } } },
-        node('td', { class: 'num', text: String(row.rank) }),
-        node('td', null, node('div', { class: 'name' }, node('b', { text: row.name }), node('span', { class: 'sub', text: category(row) + ' on ' + chains(row) }))),
-        node('td', { class: 'num', text: usd(row.tvl_usd) }),
-        node('td', { class: 'num ' + growthClass, text: percent(row.change_7d) }),
-        node('td', { class: 'num', text: age(row.age_days) }),
-        node('td', null, node('div', { class: 'implied' }, node('div', { class: 'bar', 'aria-hidden': 'true' }, node('i', { style: 'width:' + Math.max(3, Math.round(row.implied_value_usd / max * 100)) + '%' })), node('span', { class: 'num', text: usd(row.implied_value_usd) }))),
-        node('td', null, node('span', { class: 'status', text: 'no token' }))
-      ));
-    });
-    return node('section', { class: 'panel table-wrap' }, node('table', null,
-      node('caption', { class: 'sub', text: 'Select a row for its score components and concrete, risk-aware farm steps.' }),
-      node('thead', null, node('tr', null, node('th', null, sortButton('value', 'Rank')), node('th', null, sortButton('name', 'Protocol')), node('th', null, sortButton('tvl', 'TVL')), node('th', null, sortButton('growth', '7d')), node('th', null, sortButton('age', 'Age')), node('th', null, sortButton('value', 'Implied value')), node('th', { text: 'Status' }))),
-      body
-    ));
-  }
-  function modelNote() {
-    var m = data.model;
-    return node('section', { class: 'panel model' },
-      node('h2', { text: 'How the ranking works' }),
-      node('p', { class: 'muted', text: 'One deterministic score is applied to every row; there are no name-specific overrides.' }),
-      node('div', { class: 'formula', text: 'score = TVL 48% + clamped 7d growth 22% + age 18% + category 6% + chain breadth 6%' }),
-      node('p', { class: 'muted', text: 'No token data means only that this snapshot has no market-cap, Gecko ID, or symbol record. It is not evidence that a token or airdrop will happen. Implied value is a model estimate, not a price.' })
-    );
-  }
-  function openDetail(slug) {
-    var row = data.rows.find(function (item) { return item.slug === slug; });
-    if (!row) return;
-    state.selected = slug;
-    var dialog = document.getElementById('detail');
-    dialog.textContent = '';
-    dialog.appendChild(node('div', { class: 'detail-head' }, node('div', null, node('span', { class: 'brand-name', text: 'Rank ' + row.rank + ' / ' + data.board_size }), node('h2', { id: 'detail-title', text: row.name }), node('p', { class: 'sub', text: category(row) + ' on ' + chains(row) })), node('button', { class: 'close', type: 'button', text: 'Close', 'aria-label': 'Close details', onclick: function () { dialog.close(); } })));
-    var parts = row.model;
-    dialog.appendChild(node('section', { class: 'detail-section' }, node('h3', { text: 'Implied value' }), node('div', { class: 'equation' },
-      node('div', null, node('span', { text: 'TVL' }), node('b', { class: 'num', text: usd(row.tvl_usd) })),
-      node('div', null, node('span', { text: '7d growth' }), node('b', { class: 'num', text: percent(row.change_7d) })),
-      node('div', null, node('span', { text: 'Age' }), node('b', { class: 'num', text: age(row.age_days) })),
-      node('div', null, node('span', { text: 'TVL / growth / age' }), node('b', { class: 'num', text: parts.tvl_component + ' / ' + parts.growth_component + ' / ' + parts.age_component })),
-      node('div', null, node('span', { text: 'Category / chains' }), node('b', { class: 'num', text: parts.category_component + ' / ' + parts.chain_component })),
-      node('div', null, node('span', { text: 'Model result' }), node('b', { class: 'num', text: usd(row.implied_value_usd) }))
-    ), node('p', { class: 'muted', text: 'This is a reproducible estimate, not a claim of future token value.' })));
-    dialog.appendChild(node('section', { class: 'detail-section' }, node('h3', { text: 'Concrete farm steps' }), node('ol', { class: 'steps' }, row.farm_steps.map(function (step) { return node('li', { text: step }); }))));
-    if (typeof dialog.showModal === 'function') dialog.showModal(); else dialog.setAttribute('open', '');
-  }
-  function render() {
-    mount.textContent = '';
-    var shell = node('div', { class: 'shell' }, header(), intro(), node('p', { class: 'caveat', role: 'note', text: 'Caveat: this is offline snapshot analysis. “No token” is a data-screen result, not confirmation of an upcoming token or airdrop. Never pay to claim; verify every action on official domains.' }), controls(), table(), modelNote(), node('dialog', { class: 'detail', id: 'detail', 'aria-labelledby': 'detail-title' }));
-    mount.appendChild(shell);
-    var dialog = document.getElementById('detail');
-    dialog.addEventListener('close', function () { state.selected = null; });
-    if (state.selected) openDetail(state.selected);
-  }
-  render();
+/* Every table, detail equation and sensitivity result calls RadarModel.evaluate.
+   Valuation inputs come only from the sealed snapshot; documented routes add no metrics. */
+(function(){
+ 'use strict';
+ const d=window.RADAR,M=globalThis.RadarModel,app=document.getElementById('app');
+ if(!d||!M){app.textContent='Data missing. Run main.ts and open the generated dashboard.';return;}
+ const s={tab:'Candidate',query:'',category:'all',chain:'all',scope:'all',evidence:'all',sort:'implied_value_usd',dir:-1,selected:null,detail:'Model'};
+ const fmt=new Intl.NumberFormat('en-US',{maximumFractionDigits:0});
+ const usd=n=>n===null||n===undefined?'Unreported':'$'+fmt.format(n);
+ const compact=n=>n===null||n===undefined?'Unreported':n>=1e9?'$'+(n/1e9).toFixed(2)+'B':n>=1e6?'$'+(n/1e6).toFixed(1)+'M':usd(n);
+ const pct=n=>n===null?'Unreported':(n>0?'+':'')+n.toFixed(2)+'%';
+ const esc=x=>String(x??'Unreported').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+ const button=(label,attrs='')=>`<button type="button" ${attrs}>${label}</button>`;
+ const candidate=d.rows.filter(r=>r.token_status==='Candidate');
+ function filtered(){return d.rows.filter(r=>r.token_status===s.tab&&(s.category==='all'||r.category===s.category)&&(s.chain==='all'||r.chains.includes(s.chain))&&(s.scope==='all'||(s.scope==='watchlist'?r.watchlist:r.below_floor))&&(s.evidence==='all'||(s.evidence==='complete'?r.model.confidence==='Complete inputs':r.model.confidence!=='Complete inputs'))&&[r.name,r.slug,r.category,...r.chains].join(' ').toLowerCase().includes(s.query.trim().toLowerCase())).sort((a,b)=>{
+  let x=a[s.sort],y=b[s.sort];if(x===null)return y===null?0:1;if(y===null)return -1;
+  return (typeof x==='string'?x.localeCompare(y):x-y)*s.dir||a.slug.localeCompare(b.slug);
+ });}
+ function select(id,label,values,current){return `<label>${label}<select id="${id}">${values.map(([v,t])=>`<option value="${esc(v)}" ${v===current?'selected':''}>${esc(t)}</option>`).join('')}</select></label>`;}
+ function render(){
+ const focus=document.activeElement?.id,pos=document.activeElement?.selectionStart;
+ const rows=filtered(),cats=[...new Set(d.rows.filter(r=>r.token_status===s.tab).map(r=>r.category).filter(Boolean))].sort();
+ const chains=[...new Set(d.rows.filter(r=>r.token_status===s.tab).flatMap(r=>r.chains))].sort();
+ const counts=t=>d.rows.filter(r=>r.token_status===t).length;
+ app.innerHTML=`<header><a class="wordmark" href="#">Token<span>Radar</span><i></i></a><div class="edition">Research desk <b>03</b></div><span class="date">Sealed snapshot · ${esc(d.as_of)}</span></header>
+ <section class="intro"><div><h1>Find the signal.<br>Inspect the assumptions.</h1><p>Protocols with no token recorded, ranked by a transparent implied value. Explore smaller projects, trace each dollar, and review a route before committing capital.</p></div><div class="coverage"><b>${d.watchlist_size}/${d.watchlist_size}</b><span>watchlist covered</span><p>${candidate.length} candidates · ${d.rows.length} snapshot records<br>${candidate.filter(r=>r.below_floor).length} candidates below the $50M floor</p></div></section>
+ <section class="model-strip"><div><b>One equation. Every protocol.</b><code>TVL × 0.25 × growth × maturity</code></div><p>Growth = 1 + clamp(7d %, −50, 100)/100. Maturity = 0.5 + 0.5 × min(listed days, 1095)/1095.<br>Missing growth → 0%; missing date → maturity 0.5. Rounded once to whole USD. This is a scenario, not a market price.</p></section>
+ <nav class="tabs" aria-label="Protocol status">${['Candidate','Recorded token','Review / derivative'].map(t=>button(`${t} <span>${counts(t)}</span>`,`data-tab="${t}" aria-pressed="${s.tab===t}"`)).join('')}</nav>
+ <p class="scope-note">${s.tab==='Candidate'?'Candidate means no token identifiers or market cap recorded. It does not confirm an unlaunched token. Watchlist members remain included; additional candidates use an explicit derivative screen.':s.tab==='Recorded token'?'Token identifiers or market cap are recorded. These protocols are separated from launch candidates; implied values are the same hypothetical model, not observed market caps.':'Derivative, exchange, staking, bridge or versioned records with no token identifiers. Research these separately; missing identifiers do not establish a new token opportunity.'}</p>
+ <section class="filters"><label class="search">Search<input id="search" type="search" placeholder="Protocol, category or chain" value="${esc(s.query)}"></label>${select('category','Category',[['all','All categories'],...cats.map(x=>[x,x])],s.category)}${select('chain','Chain',[['all','All chains'],...chains.map(x=>[x,x])],s.chain)}${select('scope','Coverage',[['all','All records'],['watchlist','Watchlist'],['early','Below $50M']],s.scope)}${select('evidence','Model inputs',[['all','All inputs'],['complete','Complete'],['missing','Incomplete']],s.evidence)}${button('Reset','id="reset"')}</section>
+ <div class="table-meta"><b>${rows.length} results</b><span>${esc(s.tab)} · Select a protocol to inspect its model and route</span></div>
+ <section class="table-wrap"><table><thead><tr>${[['rank','Rank'],['name','Protocol'],['tvl_usd','TVL'],['change_7d','7d TVL'],['age_days','Listed age'],['implied_value_usd','Implied USD']].map(([k,v])=>`<th aria-sort="${s.sort===k?(s.dir===1?'ascending':'descending'):'none'}">${button(v+(s.sort===k?(s.dir===1?' ↑':' ↓'):''),`data-sort="${k}"`)}</th>`).join('')}<th>Input evidence</th><th>Route</th></tr></thead><tbody>${rows.map(r=>`<tr><td class="number">${r.rank}</td><td><button class="protocol" data-open="${esc(r.slug)}">${esc(r.name)}</button><small>${esc(r.category||'Unreported')} · ${esc(r.chains.slice(0,2).join(', ')||'Network unreported')}${r.watchlist?' · Watchlist':r.below_floor?' · Below floor':''}</small></td><td class="number">${compact(r.tvl_usd)}</td><td class="number ${r.change_7d>=0&&r.change_7d!==null?'positive':'muted'}">${pct(r.change_7d)}</td><td class="number">${r.age_days===null?'Unreported':fmt.format(r.age_days)+'d'}</td><td class="number value">${compact(M.evaluate(r,d.as_of).implied_value_usd)}</td><td><span class="badge ${r.model.confidence==='Complete inputs'?'complete':''}">${r.model.confidence==='Complete inputs'?'Complete':'Incomplete'}</span></td><td><small>${r.farm.checked_at?'Documented':'Research only'}</small></td></tr>`).join('')}</tbody></table>${rows.length?'':`<div class="empty"><h2>No matching protocols</h2><p>Reset the filters to return to this status group.</p>${button('Clear filters','id="clear"')}</div>`}</section>
+ <footer><b>Evidence and limits</b><p>${esc(d.source)}. This page makes no network requests and is not a live feed. Listing age measures tracking history, not verified years without a token. TVL can double-count underlying capital. The 0.25 base multiple and maturity schedule are assumptions, not calibrated prices or launch probabilities.</p><p>Documented route mechanics checked 2026-11-17; campaign eligibility, current fees and future rewards are unverified. All other routes are explicitly research-only. Source URLs appear as copyable text for offline use.</p></footer>`;
+ app.querySelectorAll('[data-tab]').forEach(b=>b.onclick=()=>{s.tab=b.dataset.tab;reset();});
+ app.querySelectorAll('[data-sort]').forEach(b=>b.onclick=()=>{s.dir=s.sort===b.dataset.sort?-s.dir:-1;s.sort=b.dataset.sort;render();});
+ app.querySelectorAll('[data-open]').forEach(b=>b.onclick=()=>open(b.dataset.open));
+ document.getElementById('search').oninput=e=>{s.query=e.target.value;render();};
+ ['category','chain','scope','evidence'].forEach(k=>document.getElementById(k).onchange=e=>{s[k]=e.target.value;render();});
+ document.getElementById('reset').onclick=reset;if(document.getElementById('clear'))document.getElementById('clear').onclick=reset;
+ if(focus==='search'){const f=document.getElementById('search');f.focus();if(pos!==null)f.setSelectionRange(pos,pos);}
+ }
+ function reset(){Object.assign(s,{query:'',category:'all',chain:'all',scope:'all',evidence:'all',sort:'implied_value_usd',dir:-1});render();}
+ function open(slug){s.selected=slug;s.detail='Model';detail();document.getElementById('detail').showModal();}
+ function detail(){
+ const r=d.rows.find(r=>r.slug===s.selected),m=M.evaluate(r,d.as_of);
+ const dlg=document.getElementById('detail');
+ const candidates=d.rows.filter(x=>x.token_status===r.token_status).slice().sort((a,b)=>b.implied_value_usd-a.implied_value_usd);
+ const rank=candidates.findIndex(x=>x.slug===r.slug)+1;
+ dlg.innerHTML=`<div class="detail-head"><div><small>${esc(r.token_status)} · #${rank} in group · global rank ${r.rank}</small><h2 id="detail-title">${esc(r.name)}</h2><p>${esc(r.category)} · ${esc(r.chains.join(', '))}</p></div>${button('Close','id="close"')}</div><nav class="detail-tabs">${['Model','Farm plan','Sources'].map(t=>button(t,`data-detail="${t}" aria-pressed="${s.detail===t}"`)).join('')}</nav><div class="detail-body">${s.detail==='Model'?`
+ <div class="result"><div><small>Implied scenario value</small><strong>${usd(m.implied_value_usd)}</strong></div><span class="badge ${m.confidence==='Complete inputs'?'complete':''}">${m.confidence}</span></div>
+ <p class="equation">${usd(r.tvl_usd)} × 0.25 × ${m.growth_multiplier.toFixed(6)} × ${m.maturity_multiplier.toFixed(6)}<br>= ${usd(m.implied_value_usd)} after rounding</p>
+ <dl><dt>Measured TVL</dt><dd>${usd(r.tvl_usd)}</dd><dt>Reported 7d TVL change</dt><dd>${pct(r.change_7d)}</dd><dt>Growth used after clamping</dt><dd>${m.growth_pct}%${r.change_7d===null?' · default 0%':''}</dd><dt>Tracking start / age at snapshot</dt><dd>${esc(r.listed_at)} / ${m.age_days===null?'unknown':m.age_days+' days'}</dd><dt>Maturity assumption</dt><dd>${m.maturity_multiplier.toFixed(6)}${m.age_days===null?' · default 0.5':''}</dd><dt>Board reconciliation</dt><dd class="${m.implied_value_usd===r.implied_value_usd?'positive':'error'}">${m.implied_value_usd===r.implied_value_usd?'Exact match':'Mismatch'} · ${usd(r.implied_value_usd)}</dd><dt>Recorded market cap</dt><dd>${usd(r.mcap_usd)}</dd><dt>Recorded symbol / Gecko ID</dt><dd>${esc(r.symbol)} / ${esc(r.gecko_id)}</dd></dl>
+ <h3>Base-multiple sensitivity</h3><p>Only the assumed multiple changes. These scenarios are not a confidence interval.</p><div class="sensitivity">${[.1,.25,.5].map(b=>`<div><small>${b}× TVL base</small><b>${compact(M.evaluate(r,d.as_of,b).implied_value_usd)}</b></div>`).join('')}</div><p class="notice">No token recorded is not proof of no token. Listing age is not a verified tokenless lifetime. Rewards, FDV, token supply, user allocation and launch timing cannot be derived from this snapshot.</p>`:s.detail==='Farm plan'?`
+ <div class="result"><div><small>Route confidence</small><h3>${esc(r.farm.evidence)}</h3></div></div><div class="sensitivity"><div><small>Principal example</small><b>$100</b></div><div><small>Personal fee ceiling</small><b>$10</b></div><div><small>Review window</small><b>30 days</b></div></div><p>These are planning choices, not measured costs, deposit requirements or campaign terms. Gas, fees, minimums, lock duration and eligibility need verification.</p><ol class="steps">${r.farm_steps.map(t=>`<li>${esc(t)}</li>`).join('')}</ol>`:`
+ <h3>Snapshot evidence</h3><p class="source">${esc(d.source)}</p><p>Snapshot date ${esc(d.as_of)} · slug ${esc(r.slug)} · ${r.watchlist?'Included in supplied watchlist':'Outside supplied watchlist'} · ${r.below_floor?'Below':'At or above'} ${usd(d.floor_usd)} floor.</p><h3>Protocol research</h3><p class="source">https://defillama.com/protocol/${esc(r.slug)}</p><h3>Route mechanism source</h3><p class="source">${esc(r.farm.source)}</p><p>${r.farm.checked_at?'Documentation read '+r.farm.checked_at+'. This supports the mechanism description, not eligibility or current fees.':'No product documentation verified in this entry. Research-only plan; do not infer a working farm.'}</p><h3>Status screen</h3><p>${esc(r.token_status)} is derived from snapshot identifiers, market cap, supplied watchlist and the disclosed derivative screen. No API field establishes a forthcoming airdrop. The snapshot carries no parent relation; additional candidates require manual review.</p>`}</div>`;
+ dlg.querySelector('#close').onclick=()=>dlg.close();dlg.querySelectorAll('[data-detail]').forEach(b=>b.onclick=()=>{s.detail=b.dataset.detail;detail();});
+ }
+ render();
 }());
